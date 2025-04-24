@@ -1,4 +1,18 @@
 import streamlit as st
+from streamlit.web.server.websocket_headers import _get_websocket_headers
+
+def allow_all_origins():
+    def patched_get_headers():
+        headers = _get_websocket_headers()
+        headers["Access-Control-Allow-Origin"] = "*"
+        headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+        headers["Access-Control-Allow-Headers"] = "*"
+        return headers
+
+    st.web.server.websocket_headers._get_websocket_headers = patched_get_headers
+
+allow_all_origins()
+
 from PIL import Image
 import fitz  # PyMuPDF
 from translate import Translator
