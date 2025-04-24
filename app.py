@@ -20,6 +20,10 @@ languages = {
     "Bengali": "bn",
     "Punjabi": "pa",
     "Odia": "or"
+
+}
+headers = {
+    'Access-Control-Allow-Origin': 'https://legal-as2i.onrender.com'
 }
 
 # ----------------- SELECT LANGUAGE -----------------
