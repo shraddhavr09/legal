@@ -4,13 +4,6 @@ import fitz  # PyMuPDF
 from translate import Translator
 import google.generativeai as genai
 
-# ----------------- FIXED: SAFE TRANSLATION -----------------
-def safe_translate(translator, text):
-    try:
-        return translator.translate(text)
-    except:
-        return text
-
 # ----------------- CONFIGURE PAGE -----------------
 st.set_page_config(page_title="Meena - Your Legal Akka")
 
@@ -35,71 +28,91 @@ translator = Translator(to_lang=languages[chosen_lang])
 
 # ----------------- TITLE -----------------
 st.title("📜 Meena - Your Legal Akka")
-st.subheader(safe_translate(translator,
-    "Upload a legal document and get a simplified interpretation:"
-))
+st.subheader(
+    translator.translate(
+        "Upload a legal document and get a simplified interpretation:"
+    )
+)
 
 # ----------------- API KEY -----------------
-# If secrets is available on Render, use it.
-try:
-    api_key = st.secrets["GEMINI_API_KEY"]
-except:
-    api_key = "AIzaSyBAuJ3FRYpSHKOTEZilI1IoD9xAL4mje-Q"
+# Replace this with your key
+genai.configure(api_key="AIzaSyBAuJ3FRYpSHKOTEZilI1IoD9xAL4mje-Q")
 
-genai.configure(api_key=api_key)
-model = genai.GenerativeModel("gemini-1.5-flash")
+model = genai.GenerativeModel("gemini-1.5-flash-latest")
 
 model_behavior = """
-You are a legal expert in Indian law. Interpret uploaded legal documents clearly and simply.
-Do not answer general legal questions. Respond only based on the uploaded content.
+You are a legal expert in Indian law.
+Interpret uploaded legal documents clearly and simply.
+Do NOT answer general legal questions.
+Only interpret what is inside the uploaded document.
 """
 
 # ----------------- FILE UPLOAD -----------------
 uploaded_file = st.file_uploader("Upload JPG, PNG, or PDF", type=["jpg", "png", "pdf"])
-prompt = st.text_input(safe_translate(translator, "Enter your question or context for the document"))
-submit = st.button(safe_translate(translator, "Upload & Interpret"))
+prompt = st.text_input(translator.translate("Enter your question or context for the document"))
+submit = st.button(translator.translate("Upload & Interpret"))
 
 # ----------------- FUNCTIONS -----------------
 def extract_text_from_pdf(uploaded_pdf):
-    try:
-        with fitz.open(stream=uploaded_pdf.read(), filetype="pdf") as doc:
-            return "".join([page.get_text() for page in doc])
-    except:
-        return ""
+    with fitz.open(stream=uploaded_pdf.read(), filetype="pdf") as doc:
+        return "".join([page.get_text() for page in doc])
+
 
 def get_image_bytes(uploaded_image):
-    return [{
+    return {
         "mime_type": uploaded_image.type,
         "data": uploaded_image.getvalue()
-    }]
+    }
 
-def get_response(model, behavior, content):
-    response = model.generate_content([behavior, content])
+
+def get_response(content):
+    response = model.generate_content(
+        [model_behavior, content]
+    )
     return response.text
+
 
 # ----------------- PROCESS -----------------
 if submit:
     if uploaded_file is None or prompt.strip() == "":
-        st.error(safe_translate(translator, "Please upload a file and enter your prompt."))
+        st.error(translator.translate("Please upload a file and enter your prompt."))
     else:
         file_ext = uploaded_file.name.split(".")[-1].lower()
+        response_text = ""
 
+        # ----------------- IMAGE -----------------
         if file_ext in ["jpg", "png"]:
             st.image(Image.open(uploaded_file), caption="Uploaded Image", use_column_width=True)
-            img = get_image_bytes(uploaded_file)[0]
-            response_text = get_response(model, model_behavior, img)
+            img_data = get_image_bytes(uploaded_file)
 
+            full_prompt = {
+                "image": img_data,
+                "text": prompt
+            }
+
+            response_text = get_response(full_prompt)
+
+        # ----------------- PDF -----------------
         elif file_ext == "pdf":
-            st.info(safe_translate(translator, "PDF uploaded. Extracting and interpreting..."))
-            extracted = extract_text_from_pdf(uploaded_file)
-            full_prompt = f"{extracted}\n\nUser Prompt: {prompt}"
-            response_text = get_response(model, model_behavior, full_prompt)
+            st.info(translator.translate("PDF uploaded. Extracting and interpreting..."))
+
+            extracted_text = extract_text_from_pdf(uploaded_file)
+
+            full_prompt = f"""
+Document Text:
+{extracted_text}
+
+User Question:
+{prompt}
+"""
+
+            response_text = get_response(full_prompt)
 
         else:
-            st.error(safe_translate(translator, "Unsupported file format."))
-            response_text = ""
+            st.error(translator.translate("Unsupported file format."))
+            st.stop()
 
-        translated = safe_translate(translator, response_text)
+        translated_output = translator.translate(response_text)
 
-        st.subheader(safe_translate(translator, "Meena's Interpretation:"))
-        st.write(translated)
+        st.subheader(translator.translate("Meena's Interpretation:"))
+        st.write(translated_output)
