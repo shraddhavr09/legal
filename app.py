@@ -1,105 +1,131 @@
+import os
 import streamlit as st
 import google.generativeai as genai
 import base64
+from translate import Translator
+from PyPDF2 import PdfReader
+from PIL import Image
+import io
 
-# ------------------------------
-# PAGE CONFIG
-# ------------------------------
+# ------------------------------------------------------------------------------
+# STREAMLIT CONFIG
+# ------------------------------------------------------------------------------
 st.set_page_config(
     page_title="Meena – Legal Document Interpreter",
-    layout="wide",
+    layout="wide"
 )
 
-# ------------------------------
-# API KEY
-# ------------------------------
-genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-
-# ------------------------------
-# HELPER: READ UPLOADED FILE
-# ------------------------------
-def read_file(uploaded_file):
-    if uploaded_file is None:
-        return None
-    content = uploaded_file.read()
-    try:
-        return content.decode("utf-8")
-    except:
-        return content.decode("latin-1", errors="ignore")
-
-# ------------------------------
-# HELPER: INTERPRET DOCUMENT
-# ------------------------------
-def interpret_document(doc_text, lang):
-    model = genai.GenerativeModel("gemini-1.5-flash")
-
-    prompt = f"""
-You are Meena — a legal document interpreter. 
-You ONLY interpret the content given.  
-You do NOT answer general law questions.
-You do NOT give legal advice.
-You ONLY explain the uploaded content in simple language.
-
-OUTPUT MUST BE IN: {lang}
-
-Document to interpret:
-{doc_text}
-"""
-
-    response = model.generate_content(prompt)
-    return response.text
-
-# ------------------------------
-# HELPER: TRANSLATE
-# ------------------------------
-def safe_translate(text, source_lang, target_lang):
-    model = genai.GenerativeModel("gemini-1.5-flash")
-
-    prompt = f"""
-Translate the following text from {source_lang} to {target_lang}.
-Only translate. Do not add or remove meaning.
-
-Text:
-{text}
-"""
-
-    response = model.generate_content(prompt)
-    return response.text
-
-# ------------------------------
-# UI
-# ------------------------------
 st.title("Meena – Legal Document Interpreter")
-st.write("Upload any legal document to get a clear, simple interpretation.")
 
-# Language dropdown
-lang = st.selectbox(
-    "Choose output language:",
-    ["English", "Hindi", "Kannada", "Tamil", "Malayalam", "Telugu", "Bengali"]
-)
+# ------------------------------------------------------------------------------
+# GEMINI CONFIG (Render environment variable)
+# ------------------------------------------------------------------------------
+genai.configure(api_key=os.environ["GEMINI_API_KEY"])
+model = genai.GenerativeModel("gemini-1.5-flash")
 
-uploaded_file = st.file_uploader("Upload your legal document", type=["txt", "pdf", "docx"])
+# ------------------------------------------------------------------------------
+# LANGUAGES
+# ------------------------------------------------------------------------------
+languages = {
+    "English": "en",
+    "Hindi": "hi",
+    "Kannada": "kn",
+    "Malayalam": "ml",
+    "Tamil": "ta",
+    "Telugu": "te",
+}
 
-# ------------------------------
-# PROCESS
-# ------------------------------
-if uploaded_file:
-    st.success("File uploaded successfully!")
-    doc_text = read_file(uploaded_file)
+chosen_lang = st.selectbox("Choose your language", list(languages.keys()))
+src = "en"
+tgt = languages[chosen_lang]
 
-    if st.button("Interpret Document"):
-        with st.spinner("Interpreting..."):
-            interpreted = interpret_document(doc_text, lang)
-            st.subheader("Interpreted Meaning:")
-            st.write(interpreted)
+translator = Translator(from_lang=src, to_lang=tgt)
 
-# ------------------------------
-# FOOTER
-# ------------------------------
-st.markdown("""
-<hr>
-<div style='text-align:center; opacity:0.7'>
-Made by Shraddha – Powered by Gemini
-</div>
-""", unsafe_allow_html=True)
+# ------------------------------------------------------------------------------
+# SAFE TRANSLATION WRAPPER
+# ------------------------------------------------------------------------------
+def safe_translate(text):
+    try:
+        if chosen_lang == "English":
+            return text
+        return translator.translate(text)
+    except:
+        return text  # fallback if translation fails
 
+def t(text):
+    return safe_translate(text)
+
+# ------------------------------------------------------------------------------
+# FILE UPLOAD
+# ------------------------------------------------------------------------------
+uploaded = st.file_uploader(t("Upload a legal document"), type=["pdf", "png", "jpg", "jpeg"])
+
+def extract_text_from_pdf(pdf_bytes):
+    reader = PdfReader(io.BytesIO(pdf_bytes))
+    text = ""
+    for page in reader.pages:
+        content = page.extract_text()
+        if content:
+            text += content + "\n"
+    return text.strip()
+
+def extract_text_from_image(img_bytes):
+    img = Image.open(io.BytesIO(img_bytes))
+    buffered = io.BytesIO()
+    img.save(buffered, format="PNG")
+    img_b64 = base64.b64encode(buffered.getvalue()).decode()
+    prompt = f"Extract all text from this image.\n<image>{img_b64}</image>"
+    
+    result = model.generate_content(prompt)
+    if hasattr(result, "text"):
+        return result.text
+    return ""
+
+# ------------------------------------------------------------------------------
+# INTERPRETATION LOGIC
+# ------------------------------------------------------------------------------
+def interpret_legal_text(raw_text):
+    prompt = f"""
+You are 'Meena', a legal document interpreter. 
+You must *only* interpret uploaded content. Do NOT answer general law questions.
+
+TASK:
+- Simplify the legal language
+- Explain meaning in normal words
+- Provide bullet points
+- Keep everything accurate
+- No legal advice
+- No external info
+
+Document:
+{raw_text}
+"""
+
+    response = model.generate_content(prompt)
+    return response.text if hasattr(response, "text") else "No response."
+
+# ------------------------------------------------------------------------------
+# MAIN LOGIC
+# ------------------------------------------------------------------------------
+if uploaded:
+    file_bytes = uploaded.read()
+
+    if uploaded.type == "application/pdf":
+        extracted = extract_text_from_pdf(file_bytes)
+    else:
+        extracted = extract_text_from_image(file_bytes)
+
+    if extracted.strip() == "":
+        st.error(t("Could not extract readable text. Try a clearer file."))
+    else:
+        st.subheader(t("Extracted Text"))
+        st.write(extracted)
+
+        with st.spinner(t("Interpreting using AI...")):
+            output = interpret_legal_text(extracted)
+
+        st.subheader(t("Simplified Interpretation"))
+        st.write(output)
+
+else:
+    st.info(t("Upload a legal document to get started."))
