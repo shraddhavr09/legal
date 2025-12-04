@@ -1,57 +1,105 @@
 import streamlit as st
-from PIL import Image
-import fitz  # PyMuPDF
-import os
-from translate import Translator
 import google.generativeai as genai
+import base64
 
-# ----------------- CONFIGURE PAGE -----------------
-st.set_page_config(page_title="Meena - Your Legal Akka")
+# ------------------------------
+# PAGE CONFIG
+# ------------------------------
+st.set_page_config(
+    page_title="Meena – Legal Document Interpreter",
+    layout="wide",
+)
 
-# ----------------- ALLOW ALL ORIGINS (SAFE MODE) -----------------
-from streamlit.web.server.websocket_headers import _get_websocket_headers
+# ------------------------------
+# API KEY
+# ------------------------------
+genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
 
-def allow_all_origins():
-    def patched_get_headers():
-        headers = _get_websocket_headers()
-        headers["Access-Control-Allow-Origin"] = "*"
-        headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
-        headers["Access-Control-Allow-Headers"] = "*"
-        return headers
-
-    st.web.server.websocket_headers._get_websocket_headers = patched_get_headers
-
-allow_all_origins()
-
-# ----------------- LANGUAGES -----------------
-languages = {
-    "English": "en",
-    "Hindi": "hi",
-    "Kannada": "kn",
-    "Tamil": "ta",
-    "Telugu": "te",
-    "Malayalam": "ml",
-    "Marathi": "mr",
-    "Gujarati": "gu",
-    "Bengali": "bn",
-    "Punjabi": "pa",
-    "Odia": "or",
-}
-
-# ----------------- LANGUAGE SELECTOR -----------------
-chosen_lang = st.sidebar.selectbox("Choose Language", list(languages.keys()))
-translator = Translator(to_lang=languages[chosen_lang])
-
-# ----------------- SAFE TRANSLATOR WRAPPER -----------------
-def safe_translate(translator, text):
+# ------------------------------
+# HELPER: READ UPLOADED FILE
+# ------------------------------
+def read_file(uploaded_file):
+    if uploaded_file is None:
+        return None
+    content = uploaded_file.read()
     try:
-        return translator.translate(text)
+        return content.decode("utf-8")
     except:
-        return text  # fallback if same language or API error
+        return content.decode("latin-1", errors="ignore")
 
-# Shortcut: t("text") will always be safe
-def t(text):
-    if chosen_lang == "English":
-        return text
-    return safe_translate(_
+# ------------------------------
+# HELPER: INTERPRET DOCUMENT
+# ------------------------------
+def interpret_document(doc_text, lang):
+    model = genai.GenerativeModel("gemini-1.5-flash")
+
+    prompt = f"""
+You are Meena — a legal document interpreter. 
+You ONLY interpret the content given.  
+You do NOT answer general law questions.
+You do NOT give legal advice.
+You ONLY explain the uploaded content in simple language.
+
+OUTPUT MUST BE IN: {lang}
+
+Document to interpret:
+{doc_text}
+"""
+
+    response = model.generate_content(prompt)
+    return response.text
+
+# ------------------------------
+# HELPER: TRANSLATE
+# ------------------------------
+def safe_translate(text, source_lang, target_lang):
+    model = genai.GenerativeModel("gemini-1.5-flash")
+
+    prompt = f"""
+Translate the following text from {source_lang} to {target_lang}.
+Only translate. Do not add or remove meaning.
+
+Text:
+{text}
+"""
+
+    response = model.generate_content(prompt)
+    return response.text
+
+# ------------------------------
+# UI
+# ------------------------------
+st.title("Meena – Legal Document Interpreter")
+st.write("Upload any legal document to get a clear, simple interpretation.")
+
+# Language dropdown
+lang = st.selectbox(
+    "Choose output language:",
+    ["English", "Hindi", "Kannada", "Tamil", "Malayalam", "Telugu", "Bengali"]
+)
+
+uploaded_file = st.file_uploader("Upload your legal document", type=["txt", "pdf", "docx"])
+
+# ------------------------------
+# PROCESS
+# ------------------------------
+if uploaded_file:
+    st.success("File uploaded successfully!")
+    doc_text = read_file(uploaded_file)
+
+    if st.button("Interpret Document"):
+        with st.spinner("Interpreting..."):
+            interpreted = interpret_document(doc_text, lang)
+            st.subheader("Interpreted Meaning:")
+            st.write(interpreted)
+
+# ------------------------------
+# FOOTER
+# ------------------------------
+st.markdown("""
+<hr>
+<div style='text-align:center; opacity:0.7'>
+Made by Shraddha – Powered by Gemini
+</div>
+""", unsafe_allow_html=True)
 
