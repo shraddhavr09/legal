@@ -1,24 +1,10 @@
 import streamlit as st
-from streamlit.web.server.websocket_headers import _get_websocket_headers
-
-def allow_all_origins():
-    def patched_get_headers():
-        headers = _get_websocket_headers()
-        headers["Access-Control-Allow-Origin"] = "*"
-        headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
-        headers["Access-Control-Allow-Headers"] = "*"
-        return headers
-
-    st.web.server.websocket_headers._get_websocket_headers = patched_get_headers
-
-allow_all_origins()
-
 from PIL import Image
 import fitz  # PyMuPDF
 from translate import Translator
 import google.generativeai as genai
 
-# ----------------- CONFIGURE PAGE (FIRST COMMAND) -----------------
+# ----------------- CONFIGURE PAGE -----------------
 st.set_page_config(page_title="Meena - Your Legal Akka")
 
 # ----------------- LANGUAGES -----------------
@@ -34,70 +20,92 @@ languages = {
     "Bengali": "bn",
     "Punjabi": "pa",
     "Odia": "or"
-
-}
-headers = {
-    'Access-Control-Allow-Origin': 'https://legal-as2i.onrender.com'
 }
 
-# ----------------- SELECT LANGUAGE -----------------
+# ----------------- LANGUAGE SELECT -----------------
 chosen_lang = st.sidebar.selectbox("Choose Language", list(languages.keys()))
 translator = Translator(to_lang=languages[chosen_lang])
 
 # ----------------- TITLE -----------------
 st.title("📜 Meena - Your Legal Akka")
-st.subheader(translator.translate("Upload a legal document and get a simplified interpretation:"))
+st.subheader(
+    translator.translate("Upload a legal document and get a simplified interpretation:")
+)
 
-# ----------------- API KEY -----------------
+# ----------------- API KEY + MODEL -----------------
 genai.configure(api_key="AIzaSyBAuJ3FRYpSHKOTEZilI1IoD9xAL4mje-Q")
-model = genai.GenerativeModel("gemini-1.5-flash")
+
+# FIXED MODEL (This prevents your 404 error)
+model = genai.GenerativeModel("models/gemini-1.5-flash-001")
 
 model_behavior = """
-You are a legal expert in Indian law. Interpret uploaded legal documents clearly and simply.
-Do not answer general legal questions. Respond only based on the uploaded content.
+You are a legal expert in Indian law.
+Interpret ONLY the uploaded legal document clearly and simply.
+Do not answer general legal questions.
+Respond based strictly on the provided document text.
 """
 
-# ----------------- FILE UPLOAD -----------------
+# ----------------- FILE INPUT -----------------
 uploaded_file = st.file_uploader("Upload JPG, PNG, or PDF", type=["jpg", "png", "pdf"])
 prompt = st.text_input(translator.translate("Enter your question or context for the document"))
 submit = st.button(translator.translate("Upload & Interpret"))
 
 # ----------------- FUNCTIONS -----------------
-def extract_text_from_pdf(uploaded_pdf):
-    with fitz.open(stream=uploaded_pdf.read(), filetype="pdf") as doc:
-        return "".join([page.get_text() for page in doc])
+def extract_text_from_pdf(file_obj):
+    doc = fitz.open(stream=file_obj.read(), filetype="pdf")
+    pages = []
+    for page in doc:
+        pages.append(page.get_text())
+    return "\n".join(pages)
 
-def get_image_bytes(uploaded_image):
-    return [{
-        "mime_type": uploaded_image.type,
-        "data": uploaded_image.getvalue()
-    }]
+def get_image_bytes(img):
+    return {
+        "mime_type": img.type,
+        "data": img.getvalue()
+    }
 
 def get_response(model, behavior, content):
     response = model.generate_content([behavior, content])
     return response.text
 
-# ----------------- PROCESS -----------------
+# ----------------- MAIN PROCESS -----------------
 if submit:
-    if uploaded_file is None or prompt.strip() == "":
-        st.error(translator.translate("Please upload a file and enter your prompt."))
-    else:
-        file_ext = uploaded_file.name.split(".")[-1].lower()
-        response_text = ""
 
-        if file_ext in ["jpg", "png"]:
-            st.image(Image.open(uploaded_file), caption="Uploaded Image", use_column_width=True)
-            image_info = get_image_bytes(uploaded_file)
-            response_text = get_response(model, model_behavior, image_info[0])
-        elif file_ext == "pdf":
-            st.info(translator.translate("PDF uploaded. Extracting and interpreting..."))
-            extracted_text = extract_text_from_pdf(uploaded_file)
-            full_prompt = f"{extracted_text}\n\nUser Prompt: {prompt}"
-            response_text = get_response(model, model_behavior, full_prompt)
-        else:
-            st.error(translator.translate("Unsupported file format."))
-        
-        translated_response = translator.translate(response_text)
-        st.subheader(translator.translate("Meena's Interpretation:"))
-        st.write(translated_response)
+    if uploaded_file is None:
+        st.error(translator.translate("Please upload a file."))
+        st.stop()
+
+    if prompt.strip() == "":
+        st.error(translator.translate("Please enter your prompt."))
+        st.stop()
+
+    file_ext = uploaded_file.name.split(".")[-1].lower()
+    response_text = ""
+
+    # ----------------- IMAGE INPUT -----------------
+    if file_ext in ["jpg", "png"]:
+        st.image(Image.open(uploaded_file), caption="Uploaded Image", use_column_width=True)
+        img_data = get_image_bytes(uploaded_file)
+        content = {
+            "type": "input_image",
+            "image": img_data
+        }
+        response_text = get_response(model, model_behavior, content)
+
+    # ----------------- PDF INPUT -----------------
+    elif file_ext == "pdf":
+        st.info(translator.translate("PDF uploaded. Extracting and interpreting..."))
+        extracted_text = extract_text_from_pdf(uploaded_file)
+        full_prompt = f"Document:\n{extracted_text}\n\nUser Prompt:\n{prompt}"
+        response_text = get_response(model, model_behavior, full_prompt)
+
+    else:
+        st.error(translator.translate("Unsupported file format."))
+        st.stop()
+
+    # ----------------- OUTPUT -----------------
+    translated = translator.translate(response_text)
+    st.subheader(translator.translate("Meena's Interpretation:"))
+    st.write(translated)
+
 
