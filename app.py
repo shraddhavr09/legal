@@ -1,131 +1,105 @@
-import os
 import streamlit as st
-import google.generativeai as genai
-import base64
-from translate import Translator
-from PyPDF2 import PdfReader
 from PIL import Image
-import io
+import fitz  # PyMuPDF
+from translate import Translator
+import google.generativeai as genai
 
-# ------------------------------------------------------------------------------
-# STREAMLIT CONFIG
-# ------------------------------------------------------------------------------
-st.set_page_config(
-    page_title="Meena – Legal Document Interpreter",
-    layout="wide"
-)
+# ----------------- FIXED: SAFE TRANSLATION -----------------
+def safe_translate(translator, text):
+    try:
+        return translator.translate(text)
+    except:
+        return text
 
-st.title("Meena – Legal Document Interpreter")
+# ----------------- CONFIGURE PAGE -----------------
+st.set_page_config(page_title="Meena - Your Legal Akka")
 
-# ------------------------------------------------------------------------------
-# GEMINI CONFIG (Render environment variable)
-# ------------------------------------------------------------------------------
-genai.configure(api_key=os.environ["GEMINI_API_KEY"])
-model = genai.GenerativeModel("gemini-1.5-flash")
-
-# ------------------------------------------------------------------------------
-# LANGUAGES
-# ------------------------------------------------------------------------------
+# ----------------- LANGUAGES -----------------
 languages = {
     "English": "en",
     "Hindi": "hi",
     "Kannada": "kn",
-    "Malayalam": "ml",
     "Tamil": "ta",
     "Telugu": "te",
+    "Malayalam": "ml",
+    "Marathi": "mr",
+    "Gujarati": "gu",
+    "Bengali": "bn",
+    "Punjabi": "pa",
+    "Odia": "or"
 }
 
-chosen_lang = st.selectbox("Choose your language", list(languages.keys()))
-src = "en"
-tgt = languages[chosen_lang]
+# ----------------- SELECT LANGUAGE -----------------
+chosen_lang = st.sidebar.selectbox("Choose Language", list(languages.keys()))
+translator = Translator(to_lang=languages[chosen_lang])
 
-translator = Translator(from_lang=src, to_lang=tgt)
+# ----------------- TITLE -----------------
+st.title("📜 Meena - Your Legal Akka")
+st.subheader(safe_translate(translator,
+    "Upload a legal document and get a simplified interpretation:"
+))
 
-# ------------------------------------------------------------------------------
-# SAFE TRANSLATION WRAPPER
-# ------------------------------------------------------------------------------
-def safe_translate(text):
-    try:
-        if chosen_lang == "English":
-            return text
-        return translator.translate(text)
-    except:
-        return text  # fallback if translation fails
+# ----------------- API KEY -----------------
+# If secrets is available on Render, use it.
+try:
+    api_key = st.secrets["GEMINI_API_KEY"]
+except:
+    api_key = "AIzaSyBAuJ3FRYpSHKOTEZilI1IoD9xAL4mje-Q"
 
-def t(text):
-    return safe_translate(text)
+genai.configure(api_key=api_key)
+model = genai.GenerativeModel("gemini-1.5-flash")
 
-# ------------------------------------------------------------------------------
-# FILE UPLOAD
-# ------------------------------------------------------------------------------
-uploaded = st.file_uploader(t("Upload a legal document"), type=["pdf", "png", "jpg", "jpeg"])
-
-def extract_text_from_pdf(pdf_bytes):
-    reader = PdfReader(io.BytesIO(pdf_bytes))
-    text = ""
-    for page in reader.pages:
-        content = page.extract_text()
-        if content:
-            text += content + "\n"
-    return text.strip()
-
-def extract_text_from_image(img_bytes):
-    img = Image.open(io.BytesIO(img_bytes))
-    buffered = io.BytesIO()
-    img.save(buffered, format="PNG")
-    img_b64 = base64.b64encode(buffered.getvalue()).decode()
-    prompt = f"Extract all text from this image.\n<image>{img_b64}</image>"
-    
-    result = model.generate_content(prompt)
-    if hasattr(result, "text"):
-        return result.text
-    return ""
-
-# ------------------------------------------------------------------------------
-# INTERPRETATION LOGIC
-# ------------------------------------------------------------------------------
-def interpret_legal_text(raw_text):
-    prompt = f"""
-You are 'Meena', a legal document interpreter. 
-You must *only* interpret uploaded content. Do NOT answer general law questions.
-
-TASK:
-- Simplify the legal language
-- Explain meaning in normal words
-- Provide bullet points
-- Keep everything accurate
-- No legal advice
-- No external info
-
-Document:
-{raw_text}
+model_behavior = """
+You are a legal expert in Indian law. Interpret uploaded legal documents clearly and simply.
+Do not answer general legal questions. Respond only based on the uploaded content.
 """
 
-    response = model.generate_content(prompt)
-    return response.text if hasattr(response, "text") else "No response."
+# ----------------- FILE UPLOAD -----------------
+uploaded_file = st.file_uploader("Upload JPG, PNG, or PDF", type=["jpg", "png", "pdf"])
+prompt = st.text_input(safe_translate(translator, "Enter your question or context for the document"))
+submit = st.button(safe_translate(translator, "Upload & Interpret"))
 
-# ------------------------------------------------------------------------------
-# MAIN LOGIC
-# ------------------------------------------------------------------------------
-if uploaded:
-    file_bytes = uploaded.read()
+# ----------------- FUNCTIONS -----------------
+def extract_text_from_pdf(uploaded_pdf):
+    try:
+        with fitz.open(stream=uploaded_pdf.read(), filetype="pdf") as doc:
+            return "".join([page.get_text() for page in doc])
+    except:
+        return ""
 
-    if uploaded.type == "application/pdf":
-        extracted = extract_text_from_pdf(file_bytes)
+def get_image_bytes(uploaded_image):
+    return [{
+        "mime_type": uploaded_image.type,
+        "data": uploaded_image.getvalue()
+    }]
+
+def get_response(model, behavior, content):
+    response = model.generate_content([behavior, content])
+    return response.text
+
+# ----------------- PROCESS -----------------
+if submit:
+    if uploaded_file is None or prompt.strip() == "":
+        st.error(safe_translate(translator, "Please upload a file and enter your prompt."))
     else:
-        extracted = extract_text_from_image(file_bytes)
+        file_ext = uploaded_file.name.split(".")[-1].lower()
 
-    if extracted.strip() == "":
-        st.error(t("Could not extract readable text. Try a clearer file."))
-    else:
-        st.subheader(t("Extracted Text"))
-        st.write(extracted)
+        if file_ext in ["jpg", "png"]:
+            st.image(Image.open(uploaded_file), caption="Uploaded Image", use_column_width=True)
+            img = get_image_bytes(uploaded_file)[0]
+            response_text = get_response(model, model_behavior, img)
 
-        with st.spinner(t("Interpreting using AI...")):
-            output = interpret_legal_text(extracted)
+        elif file_ext == "pdf":
+            st.info(safe_translate(translator, "PDF uploaded. Extracting and interpreting..."))
+            extracted = extract_text_from_pdf(uploaded_file)
+            full_prompt = f"{extracted}\n\nUser Prompt: {prompt}"
+            response_text = get_response(model, model_behavior, full_prompt)
 
-        st.subheader(t("Simplified Interpretation"))
-        st.write(output)
+        else:
+            st.error(safe_translate(translator, "Unsupported file format."))
+            response_text = ""
 
-else:
-    st.info(t("Upload a legal document to get started."))
+        translated = safe_translate(translator, response_text)
+
+        st.subheader(safe_translate(translator, "Meena's Interpretation:"))
+        st.write(translated)
