@@ -44,7 +44,7 @@ st.title("📜 Meena - Your Legal Akka")
 st.subheader(safe_translate("Upload a legal document and get a simplified interpretation:"))
 
 # ----------------- API KEY -----------------
-genai.configure(api_key="YOUR_GEMINI_API_KEY")
+genai.configure(api_key="AIzaSyBAuJ3FRYpSHKOTEZilI1IoD9xAL4mje-Q")
 model = genai.GenerativeModel("gemini-1.5-flash-latest")
 
 model_behavior = """
