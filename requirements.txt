@@ -5,3 +5,4 @@ Pillow
 PyMuPDF
 pyttsx3
 translate
+PyPDF2
