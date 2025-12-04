@@ -1,11 +1,27 @@
 import streamlit as st
 from PIL import Image
 import fitz  # PyMuPDF
+import os
 from translate import Translator
 import google.generativeai as genai
 
 # ----------------- CONFIGURE PAGE -----------------
 st.set_page_config(page_title="Meena - Your Legal Akka")
+
+# ----------------- ALLOW ALL ORIGINS (SAFE MODE) -----------------
+from streamlit.web.server.websocket_headers import _get_websocket_headers
+
+def allow_all_origins():
+    def patched_get_headers():
+        headers = _get_websocket_headers()
+        headers["Access-Control-Allow-Origin"] = "*"
+        headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+        headers["Access-Control-Allow-Headers"] = "*"
+        return headers
+
+    st.web.server.websocket_headers._get_websocket_headers = patched_get_headers
+
+allow_all_origins()
 
 # ----------------- LANGUAGES -----------------
 languages = {
@@ -19,93 +35,23 @@ languages = {
     "Gujarati": "gu",
     "Bengali": "bn",
     "Punjabi": "pa",
-    "Odia": "or"
+    "Odia": "or",
 }
 
-# ----------------- LANGUAGE SELECT -----------------
+# ----------------- LANGUAGE SELECTOR -----------------
 chosen_lang = st.sidebar.selectbox("Choose Language", list(languages.keys()))
 translator = Translator(to_lang=languages[chosen_lang])
 
-# ----------------- TITLE -----------------
-st.title("📜 Meena - Your Legal Akka")
-st.subheader(
-    translator.translate("Upload a legal document and get a simplified interpretation:")
-)
+# ----------------- SAFE TRANSLATOR WRAPPER -----------------
+def safe_translate(translator, text):
+    try:
+        return translator.translate(text)
+    except:
+        return text  # fallback if same language or API error
 
-# ----------------- API KEY + MODEL -----------------
-genai.configure(api_key="AIzaSyBAuJ3FRYpSHKOTEZilI1IoD9xAL4mje-Q")
-
-# FIXED MODEL (This prevents your 404 error)
-model = genai.GenerativeModel("models/gemini-1.5-flash-001")
-
-model_behavior = """
-You are a legal expert in Indian law.
-Interpret ONLY the uploaded legal document clearly and simply.
-Do not answer general legal questions.
-Respond based strictly on the provided document text.
-"""
-
-# ----------------- FILE INPUT -----------------
-uploaded_file = st.file_uploader("Upload JPG, PNG, or PDF", type=["jpg", "png", "pdf"])
-prompt = st.text_input(translator.translate("Enter your question or context for the document"))
-submit = st.button(translator.translate("Upload & Interpret"))
-
-# ----------------- FUNCTIONS -----------------
-def extract_text_from_pdf(file_obj):
-    doc = fitz.open(stream=file_obj.read(), filetype="pdf")
-    pages = []
-    for page in doc:
-        pages.append(page.get_text())
-    return "\n".join(pages)
-
-def get_image_bytes(img):
-    return {
-        "mime_type": img.type,
-        "data": img.getvalue()
-    }
-
-def get_response(model, behavior, content):
-    response = model.generate_content([behavior, content])
-    return response.text
-
-# ----------------- MAIN PROCESS -----------------
-if submit:
-
-    if uploaded_file is None:
-        st.error(translator.translate("Please upload a file."))
-        st.stop()
-
-    if prompt.strip() == "":
-        st.error(translator.translate("Please enter your prompt."))
-        st.stop()
-
-    file_ext = uploaded_file.name.split(".")[-1].lower()
-    response_text = ""
-
-    # ----------------- IMAGE INPUT -----------------
-    if file_ext in ["jpg", "png"]:
-        st.image(Image.open(uploaded_file), caption="Uploaded Image", use_column_width=True)
-        img_data = get_image_bytes(uploaded_file)
-        content = {
-            "type": "input_image",
-            "image": img_data
-        }
-        response_text = get_response(model, model_behavior, content)
-
-    # ----------------- PDF INPUT -----------------
-    elif file_ext == "pdf":
-        st.info(translator.translate("PDF uploaded. Extracting and interpreting..."))
-        extracted_text = extract_text_from_pdf(uploaded_file)
-        full_prompt = f"Document:\n{extracted_text}\n\nUser Prompt:\n{prompt}"
-        response_text = get_response(model, model_behavior, full_prompt)
-
-    else:
-        st.error(translator.translate("Unsupported file format."))
-        st.stop()
-
-    # ----------------- OUTPUT -----------------
-    translated = translator.translate(response_text)
-    st.subheader(translator.translate("Meena's Interpretation:"))
-    st.write(translated)
-
+# Shortcut: t("text") will always be safe
+def t(text):
+    if chosen_lang == "English":
+        return text
+    return safe_translate(_
 
