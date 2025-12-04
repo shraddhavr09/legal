@@ -45,7 +45,7 @@ st.subheader(safe_translate("Upload a legal document and get a simplified interp
 
 # ----------------- API KEY -----------------
 genai.configure(api_key="AIzaSyBAuJ3FRYpSHKOTEZilI1IoD9xAL4mje-Q")
-model = genai.GenerativeModel("gemini-1.5-flash-latest")
+model = genai.GenerativeModel("gemini-1.5-flash")
 
 model_behavior = """
 You are a legal expert in Indian law.
