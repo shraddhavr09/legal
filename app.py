@@ -9,7 +9,7 @@ import struct # Added for handling raw PCM bytes
 # ------------------------------
 # CONFIG
 # ------------------------------
-st.set_page_config(page_title="Meena - Your Legal Advisor", page_icon="📜", layout="centered")
+st.set_page_config(page_title="Meena - Legal Akka", page_icon="📜", layout="centered")
 
 # ------------------------------
 # LOAD API KEY FROM ENV VARIABLE
@@ -206,4 +206,5 @@ if st.session_state.output:
 st.sidebar.markdown("""
 ---
 **Note on Model:**
-The model name
+The model name was updated from the unsupported `models/gemini-1.5-flash-001` to the correct alias `gemini-2.5-flash`.
+""")
