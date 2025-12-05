@@ -1,119 +1,116 @@
 import streamlit as st
 import google.generativeai as genai
-from translate import Translator
-import pdfplumber
-from PIL import Image
-import io
-import os
+from PyPDF2 import PdfReader
 
-# --------------------------
+# ------------------------------
 # CONFIG
-# --------------------------
-st.set_page_config(page_title="Meena - Legal Akka", layout="centered")
+# ------------------------------
+st.set_page_config(page_title="Meena - Legal Akka", page_icon="📜", layout="centered")
 
-# Your Gemini API Key (Studio)
-GENAI_API_KEY = "YOUR_GEMINI_API_KEY"
+# Load API key
+genai.configure(api_key=st.secrets["AIzaSyBAuJ3FRYpSHKOTEZilI1IoD9xAL4mje-Q"])
 
-genai.configure(api_key=GENAI_API_KEY)
+# Gemini Studio model
+model = genai.GenerativeModel("gemini-1.5-flash")
 
-MODEL_NAME = "gemini-1.5-flash"  # VALID FOR GOOGLE AI STUDIO
-
-model = genai.GenerativeModel(MODEL_NAME)
-
-# --------------------------
-# SAFE TRANSLATION WRAPPER
-# --------------------------
-def safe_translate(text, src, dest):
+# ------------------------------
+# SAFE TRANSLATE FUNCTION
+# ------------------------------
+def safe_translate(text, src, dest, translator):
     if src == dest:
         return text
-
     try:
-        translator = Translator(from_lang=src, to_lang=dest)
-        return translator.translate(text)
-    except Exception:
+        return translator(text, src=src, dest=dest)
+    except:
         return text
 
-# --------------------------
-# EXTRACT RAW TEXT FROM PDF
-# --------------------------
+# ------------------------------
+# SIMPLE TRANSLATOR USING GOOGLE TTS + MODEL
+# ------------------------------
+def translate_text(text, target_lang):
+    if target_lang == "English":
+        return text
+    
+    prompt = f"Translate this into {target_lang}, without adding anything: {text}"
+    out = model.generate_content(prompt)
+    return out.text
+
+# ------------------------------
+# EXTRACT TEXT FROM PDF
+# ------------------------------
 def extract_pdf_text(uploaded_file):
-    full_text = ""
-    with pdfplumber.open(uploaded_file) as pdf:
-        for page in pdf.pages:
-            full_text += page.extract_text() or ""
-    return full_text
+    reader = PdfReader(uploaded_file)
+    text = ""
+    for page in reader.pages:
+        text += page.extract_text() + "\n"
+    return text.strip()
 
-# --------------------------
-# EXTRACT TEXT FROM IMAGES
-# --------------------------
-def extract_image_text(uploaded_file):
-    img = Image.open(uploaded_file)
-    buffered = io.BytesIO()
-    img.save(buffered, format="PNG")
-
-    response = model.generate_content(
-        ["Extract readable text from this image only:",
-         {"image": buffered.getvalue()}]
-    )
-    return response.text
-
-# --------------------------
-# LEGAL INTERPRETER
-# --------------------------
-def interpret_legal_text(text):
+# ------------------------------
+# INTERPRET LEGAL TEXT
+# ------------------------------
+def interpret_legal_text(text, user_prompt):
     prompt = f"""
 You are Meena, a legal document interpreter.
 
 RULES:
-- ONLY interpret uploaded content.
-- NO legal advice.
-- NO external law knowledge.
-- Convert complex clauses into simple language.
-- Identify: obligations, rights, timelines, penalties, entities.
+- ONLY interpret the uploaded document content.
+- Do NOT use outside legal knowledge.
+- DO NOT give legal advice.
+- Summarize in simple language.
+- Identify: obligations, rights, timelines, penalties, key entities.
 
-TEXT TO INTERPRET:
+USER QUESTION:
+{user_prompt}
+
+DOCUMENT CONTENT:
 {text}
 """
 
     response = model.generate_content(prompt)
     return response.text
 
-# --------------------------
-# UI LAYOUT
-# --------------------------
-st.markdown("<h2 style='text-align:center;'>📜 Meena - Your Legal Akka</h2>", unsafe_allow_html=True)
+# ------------------------------
+# UI
+# ------------------------------
+st.title("📜 Meena - Your Legal Akka")
 
-# Language selector
-languages = [
-    "English", "Hindi", "Kannada", "Malayalam", "Tamil", "Telugu",
-    "Marathi", "Gujarati", "Bengali", "Punjabi"
-]
+# LANGUAGE SELECTOR
+language = st.selectbox("Choose Language", 
+                        ["English", "Hindi", "Kannada", "Tamil", "Malayalam", "Telugu"])
 
-st.subheader("Choose Language")
-selected_lang = st.selectbox("Language", languages, index=0)
-
-# --------------------------
 # FILE UPLOAD
-# --------------------------
-uploaded_file = st.file_uploader("Upload Legal Document (PDF/Image)", type=["pdf", "png", "jpg", "jpeg"])
+uploaded = st.file_uploader("Upload a legal PDF document", type=["pdf"])
 
-if uploaded_file:
-    file_type = uploaded_file.name.lower()
+# USER QUESTION
+st.subheader("Ask Meena")
+user_prompt = st.text_area("Ask anything about the uploaded legal document:")
 
-    with st.spinner("Extracting content…"):
-        if file_type.endswith(".pdf"):
-            extracted = extract_pdf_text(uploaded_file)
-        else:
-            extracted = extract_image_text(uploaded_file)
+output = ""
 
-    if not extracted.strip():
-        st.error("No readable text found.")
-    else:
-        with st.spinner("Interpreting the legal document…"):
-            interpreted = interpret_legal_text(extracted)
+# ------------------------------
+# PROCESSING LOGIC
+# ------------------------------
+if uploaded and st.button("Interpret Document"):
+    with st.spinner("Extracting and interpreting…"):
+        extracted = extract_pdf_text(uploaded)
+        interpreted = interpret_legal_text(extracted, user_prompt)
+        output = translate_text(interpreted, language)
 
-        # Translate to selected language
-        output = safe_translate(interpreted, "English", selected_lang)
+    st.subheader("🔍 Interpretation")
+    st.write(output)
 
-        st.subheader("Result")
-        st.write(output)
+    # ------------------------------
+    # READ ALOUD (AUDIO)
+    # ------------------------------
+    if st.button("🔊 Read Aloud"):
+        with st.spinner("Generating audio…"):
+            audio_response = model.generate_content(
+                contents=[output],
+                generation_config={"response_mime_type": "audio/mp3"}
+            )
+            st.audio(audio_response.audio, format="audio/mp3")
+
+# END
+
+
+    
