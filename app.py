@@ -11,7 +11,7 @@ st.set_page_config(page_title="Meena - Legal Akka", page_icon="📜", layout="ce
 # ------------------------------
 # LOAD API KEY FROM ENV VARIABLE
 # ------------------------------
-API_KEY = os.getenv("AIzaSyBAuJ3FRYpSHKOTEZilI1IoD9xAL4mje-Q")
+API_KEY = os.getenv("API_KEY")
 
 if not API_KEY:
     st.error("API Key not found. Please set API_KEY in Render Environment Variables.")
