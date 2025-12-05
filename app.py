@@ -1,31 +1,28 @@
 import streamlit as st
 import google.generativeai as genai
 from PyPDF2 import PdfReader
+import os
 
 # ------------------------------
 # CONFIG
 # ------------------------------
 st.set_page_config(page_title="Meena - Legal Akka", page_icon="📜", layout="centered")
 
-# Load API key
-genai.configure(api_key=st.secrets["AIzaSyBAuJ3FRYpSHKOTEZilI1IoD9xAL4mje-Q"])
+# ------------------------------
+# LOAD API KEY FROM ENV VARIABLE
+# ------------------------------
+API_KEY = os.getenv("AIzaSyBAuJ3FRYpSHKOTEZilI1IoD9xAL4mje-Q")
 
-# Gemini Studio model
+if not API_KEY:
+    st.error("API Key not found. Please set API_KEY in Render Environment Variables.")
+else:
+    genai.configure(api_key=API_KEY)
+
+# Gemini Model
 model = genai.GenerativeModel("gemini-1.5-flash")
 
 # ------------------------------
-# SAFE TRANSLATE FUNCTION
-# ------------------------------
-def safe_translate(text, src, dest, translator):
-    if src == dest:
-        return text
-    try:
-        return translator(text, src=src, dest=dest)
-    except:
-        return text
-
-# ------------------------------
-# SIMPLE TRANSLATOR USING GOOGLE TTS + MODEL
+# TRANSLATION USING GEMINI
 # ------------------------------
 def translate_text(text, target_lang):
     if target_lang == "English":
@@ -42,7 +39,9 @@ def extract_pdf_text(uploaded_file):
     reader = PdfReader(uploaded_file)
     text = ""
     for page in reader.pages:
-        text += page.extract_text() + "\n"
+        extracted = page.extract_text()
+        if extracted:
+            text += extracted + "\n"
     return text.strip()
 
 # ------------------------------
@@ -53,11 +52,11 @@ def interpret_legal_text(text, user_prompt):
 You are Meena, a legal document interpreter.
 
 RULES:
-- ONLY interpret the uploaded document content.
-- Do NOT use outside legal knowledge.
-- DO NOT give legal advice.
+- ONLY interpret the uploaded document.
+- Do NOT add external legal knowledge.
+- Do NOT give legal advice.
 - Summarize in simple language.
-- Identify: obligations, rights, timelines, penalties, key entities.
+- Extract obligations, rights, timelines, penalties, key entities.
 
 USER QUESTION:
 {user_prompt}
@@ -75,8 +74,10 @@ DOCUMENT CONTENT:
 st.title("📜 Meena - Your Legal Akka")
 
 # LANGUAGE SELECTOR
-language = st.selectbox("Choose Language", 
-                        ["English", "Hindi", "Kannada", "Tamil", "Malayalam", "Telugu"])
+language = st.selectbox(
+    "Choose Language",
+    ["English", "Hindi", "Kannada", "Tamil", "Malayalam", "Telugu"]
+)
 
 # FILE UPLOAD
 uploaded = st.file_uploader("Upload a legal PDF document", type=["pdf"])
@@ -111,6 +112,3 @@ if uploaded and st.button("Interpret Document"):
             st.audio(audio_response.audio, format="audio/mp3")
 
 # END
-
-
-    
