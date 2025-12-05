@@ -19,7 +19,8 @@ else:
     genai.configure(api_key=API_KEY)
 
 # Gemini Model
-model = genai.GenerativeModel("gemini-1.5-flash")
+model = genai.GenerativeModel("models/gemini-1.5-flash-001")
+
 
 # ------------------------------
 # TRANSLATION USING GEMINI
